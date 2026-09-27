@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منصة متابعة الحجم الساعي والمقاييس للأساتذة</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- SheetJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Google Fonts Cairo -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Cairo', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        function App() {
+            const [workbook, setWorkbook] = React.useState(null);
+            const [sheetNames, setSheetNames] = React.useState([]);
+            const [activeSheet, setActiveSheet] = React.useState('');
+            const [teachers, setTeachers] = React.useState([]);
+            const [searchTerm, setSearchTerm] = React.useState('');
+            const [selectedTeacher, setSelectedTeacher] = React.useState(null);
+            const [loading, setLoading] = React.useState(true);
+            const [errorMsg, setErrorMsg] = React.useState('');
+
+            // تحميل ملف الاكسل تلقائياً من المستودع عند فتح الصفحة
+            React.useEffect(() => {
+                const excelFileName = 'الحجم الساعي للأساتذة الدائمين+المؤقتين.xlsx';
+                fetch(excelFileName)
+                    .then(response => {
+                        if (!response.ok) throw new Error('فشل في العثور على ملف الاكسل في المستودع');
+                        return response.arrayBuffer();
+                    })
+                    .then(buffer => {
+                        const wb = XLSX.read(buffer, { type: 'array' });
+                        setWorkbook(wb);
+                        setSheetNames(wb.SheetNames);
+                        const firstSheet = wb.SheetNames[0];
+                        setActiveSheet(firstSheet);
+                        processSheet(wb, firstSheet);
+                        setLoading(false);
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        setErrorMsg('لم يتم العثور على ملف الاكسل تلقائياً. تأكد من وجود الملف بنفس الاسم في المستودع.');
+                        setLoading(false);
+                    });
+            }, []);
+
+            const processSheet = (wb, sheetName) => {
+                const ws = wb.Sheets[sheetName];
+                const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 });
+                
+                if (rawData.length === 0) {
+                    setTeachers([]);
+                    return;
+                }
+
+                let isPermanent = sheetName.includes('الدائمين');
+                let startRow = isPermanent ? 4 : 2;
+                let parsedList = [];
+
+                for (let i = startRow; i < rawData.length; i++) {
+                    const row = rawData[i];
+                    if (!row || !row[0] || String(row[0]).trim() === '') continue;
+
+                    if (isPermanent) {
+                        let sem1Modules = [];
+                        if (row[8]) sem1Modules.push({ name: row[8], level: row[9] || '' });
+                        if (row[11]) sem1Modules.push({ name: row[11], level: row[12] || '' });
+                        if (row[14]) sem1Modules.push({ name: row[14], level: row[15] || '' });
+
+                        let sem2Modules = [];
+                        if (row[38]) sem2Modules.push({ name: row[38], level: row[39] || '' });
+                        if (row[41]) sem2Modules.push({ name: row[41], level: row[42] || '' });
+                        if (row[44]) sem2Modules.push({ name: row[44], level: row[45] || '' });
+
+                        parsedList.push({
+                            id: i,
+                            type: 'دائم',
+                            name: String(row[0] || '').trim(),
+                            dept: String(row[1] || 'غير محدد').trim(),
+                            rank: String(row[2] || 'أستاذ').trim(),
+                            gender: String(row[3] || '').trim(),
+                            specialty: String(row[6] || row[7] || '').trim(),
+                            sem1: {
+                                modules: sem1Modules,
+                                cm: row[17] !== undefined ? row[17] : '0',
+                                ct: row[18] !== undefined ? row[18] : '0',
+                                total: row[33] !== undefined ? row[33] : '0'
+                            },
+                            sem2: {
+                                modules: sem2Modules,
+                                cm: row[47] !== undefined ? row[47] : '0',
+                                ct: row[48] !== undefined ? row[48] : '0',
+                                total: row[63] !== undefined ? row[63] : '0'
+                            },
+                            totalHours: row[66] !== undefined ? row[66] : '0',
+                            status: String(row[67] || row[64] || '').trim()
+                        });
+                    } else {
+                        let sem1Modules = [];
+                        if (row[5]) sem1Modules.push({ name: row[5], level: row[4] || '', dept: row[3] || '' });
+                        if (row[12]) sem1Modules.push({ name: row[12], level: row[11] || '', dept: row[10] || '' });
+
+                        let sem2Modules = [];
+                        if (row[20]) sem2Modules.push({ name: row[20], level: row[19] || '', dept: row[18] || '' });
+                        if (row[27]) sem2Modules.push({ name: row[27], level: row[26] || '', dept: row[25] || '' });
+
+                        parsedList.push({
+                            id: i,
+                            type: 'مؤقت',
+                            name: String(row[0] || '').trim(),
+                            dept: String(row[3] || row[18] || 'غير محدد').trim(),
+                            rank: String(row[1] || 'أستاذ مؤقت').trim(),
+                            specialty: String(row[2] || '').trim(),
+                            sem1: {
+                                modules: sem1Modules,
+                                cm: row[7] !== undefined ? row[7] : '0',
+                                ct: row[8] !== undefined ? row[8] : '0',
+                                total: row[17] !== undefined ? row[17] : '0'
+                            },
+                            sem2: {
+                                modules: sem2Modules,
+                                cm: row[22] !== undefined ? row[22] : '0',
+                                ct: row[23] !== undefined ? row[23] : '0',
+                                total: row[32] !== undefined ? row[32] : '0'
+                            },
+                            totalHours: row[33] !== undefined ? row[33] : '0',
+                            status: ''
+                        });
+                    }
+                }
+                setTeachers(parsedList);
+            };
+
+            const handleSheetChange = (name) => {
+                setActiveSheet(name);
+                if (workbook) processSheet(workbook, name);
+            };
+
+            const filteredTeachers = teachers.filter(t => 
+                t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                t.dept.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                t.specialty.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+
+            return (
+                <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
+                    {/* رأس الصفحة */}
+                    <header className="text-center space-y-2">
+                        <h1 className="text-3xl font-bold text-slate-900">سجل الحجم الساعي والمقاييس للأساتذة</h1>
+                        <p className="text-slate-500 text-sm">استعرض أساتذة الدائمين والمؤقتين مع التفاصيل الكاملة للساعات والمقاييس</p>
+                    </header>
+
+                    {/* أزرار التبويب وحالة التحميل التلقائي */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                            <span className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></span>
+                            <span className="text-sm font-semibold text-slate-700">تم جلب بيانات الاكسل من المستودع بنجاح</span>
+                        </div>
+
+                        {sheetNames.length > 0 && (
+                            <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1">
+                                {sheetNames.map(name => (
+                                    <button
+                                        key={name}
+                                        onClick={() => handleSheetChange(name)}
+                                        className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition whitespace-nowrap ${activeSheet === name ? 'bg-slate-900 text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        {name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* حقل البحث */}
+                    {teachers.length > 0 && (
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="ابحث باسم الأستاذ، القسم، أو المقياس..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full px-5 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 placeholder-slate-400 text-sm"
+                            />
+                        </div>
+                    )}
+
+                    {/* التحميل والأخطاء */}
+                    {loading && (
+                        <div className="text-center py-16">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
+                            <p className="text-slate-400 text-sm mt-3">جاري تحميل بيانات الاكسل من المستودع...</p>
+                        </div>
+                    )}
+
+                    {errorMsg && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-2xl text-center text-sm">
+                            {errorMsg}
+                        </div>
+                    )}
+
+                    {/* بطاقات الأساتذة */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredTeachers.map((teacher) => (
+                            <div 
+                                key={teacher.id} 
+                                onClick={() => setSelectedTeacher(teacher)}
+                                className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition flex flex-col justify-between gap-4"
+                            >
+                                <div className="space-y-1">
+                                    <div className="flex justify-between items-start gap-2">
+                                        <h3 className="font-bold text-slate-900 text-lg">{teacher.name}</h3>
+                                        <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-lg whitespace-nowrap">
+                                            {teacher.dept}
+                                        </span>
+                                    </div>
+                                    <p className="text-slate-500 text-xs">
+                                        {teacher.rank} {teacher.specialty ? `- ${teacher.specialty}` : ''}
+                                    </p>
+                                </div>
+
+                                <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-sm">
+                                    <span className="text-blue-600 font-semibold text-xs flex items-center gap-1">
+                                        <span>عرض المقاييس والتفاصيل الساعية</span>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </span>
+                                    <span className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-xs">
+                                        الإجمالي: {teacher.totalHours} ساعة
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* نافذة التفاصيل الشاملة المنبثقة (Modal) */}
+                    {selectedTeacher && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn overflow-y-auto">
+                            <div className="bg-white rounded-3xl max-w-2xl w-full p-6 md:p-8 shadow-2xl space-y-6 border border-slate-100 relative max-h-[90vh] overflow-y-auto my-auto">
+                                <button 
+                                    onClick={() => setSelectedTeacher(null)}
+                                    className="absolute top-5 left-5 w-9 h-9 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full flex items-center justify-center transition font-bold"
+                                >
+                                    ✕
+                                </button>
+
+                                <div className="space-y-1 border-b border-slate-100 pb-4">
+                                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md">أستاذ {selectedTeacher.type}</span>
+                                    <h2 className="text-2xl font-bold text-slate-900 mt-2">{selectedTeacher.name}</h2>
+                                    <p className="text-slate-500 text-sm">القسم: <span className="font-semibold text-slate-700">{selectedTeacher.dept}</span> | الرتبة: <span className="font-semibold text-slate-700">{selectedTeacher.rank || 'غير متوفر'}</span></p>
+                                </div>
+
+                                {/* تفاصيل السداسي الأول */}
+                                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <div className="flex justify-between items-center font-bold text-slate-800 text-sm border-b border-slate-200 pb-2">
+                                        <span>📅 السداسي الأول</span>
+                                        <span className="text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">المجموع: {selectedTeacher.sem1.total} ساعة</span>
+                                    </div>
+                                    <div className="flex gap-4 text-xs text-slate-600 pt-1">
+                                        <span>محاضرات (ع م): <strong className="text-slate-800">{selectedTeacher.sem1.cm}</strong></span>
+                                        <span>تطبيقات (ع ت): <strong className="text-slate-800">{selectedTeacher.sem1.ct}</strong></span>
+                                    </div>
+                                    <div className="space-y-2 pt-2">
+                                        {selectedTeacher.sem1.modules.length > 0 ? (
+                                            selectedTeacher.sem1.modules.map((m, idx) => (
+                                                <div key={idx} className="bg-white p-2.5 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                                                    <span className="font-bold text-slate-800">📚 {m.name}</span>
+                                                    <span className="bg-slate-100 px-2.5 py-1 rounded-md text-slate-600 font-semibold">المستوى: {m.level || 'غير محدد'}</span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-xs text-slate-400">لا توجد مقاييس مسجلة.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* تفاصيل السداسي الثاني */}
+                                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                                    <div className="flex justify-between items-center font-bold text-slate-800 text-sm border-b border-slate-200 pb-2">
+                                        <span>📅 السداسي الثاني</span>
+                                        <span className="text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">المجموع: {selectedTeacher.sem2.total} ساعة</span>
+                                    </div>
+                                    <div className="flex gap-4 text-xs text-slate-600 pt-1">
+                                        <span>محاضرات (ع م): <strong className="text-slate-800">{selectedTeacher.sem2.cm}</strong></span>
+                                        <span>تطبيقات (ع ت): <strong className="text-slate-800">{selectedTeacher.sem2.ct}</strong></span>
+                                    </div>
+                                    <div className="space-y-2 pt-2">
+                                        {selectedTeacher.sem2.modules.length > 0 ? (
+                                            selectedTeacher.sem2.modules.map((m, idx) => (
+                                                <div key={idx} className="bg-white p-2.5 rounded-xl border border-slate-200 flex justify-between items-center text-xs">
+                                                    <span className="font-bold text-slate-800">📖 {m.name}</span>
+                                                    <span className="bg-slate-100 px-2.5 py-1 rounded-md text-slate-600 font-semibold">المستوى: {m.level || 'غير محدد'}</span>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-xs text-slate-400">لا توجد مقاييس مسجلة.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="pt-2 flex justify-between items-center bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                                    <span className="font-bold text-blue-900 text-base">الحجم الساعي الإجمالي السنوي:</span>
+                                    <span className="font-extrabold text-blue-700 bg-blue-100 px-4 py-1.5 rounded-xl text-lg">{selectedTeacher.totalHours} ساعة</span>
+                                </div>
+
+                                <button 
+                                    onClick={() => setSelectedTeacher(null)}
+                                    className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition shadow"
+                                >
+                                    إغلاق النافذة
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
